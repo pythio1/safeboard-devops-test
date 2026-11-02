@@ -1,0 +1,91 @@
+# Слой 2: наблюдаемость. Запускается командой `dagger call deploy-monitoring`.
+name: safeboard-monitoring
+
+x-common: &common
+  restart: unless-stopped
+  networks: [safeboard]
+
+services:
+  prometheus:
+    <<: *common
+    build: ./prometheus                  # конфиг «запечён» в образ (см. README: почему не bind mount)
+    container_name: safeboard-prometheus
+    volumes:
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  grafana:
+    <<: *common
+    image: grafana/grafana:12.4.13
+    container_name: safeboard-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Создайте .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  node-exporter:                         # метрики хоста: CPU/RAM/диск
+    <<: *common
+    image: prom/node-exporter:v1.12.1
+    container_name: safeboard-node-exporter
+    pid: host
+    command:
+      - "--path.rootfs=/host"
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+    volumes:
+      - /:/host:ro
+
+  cadvisor:                              # метрики контейнеров: CPU/RAM/сеть
+    <<: *common
+    image: ghcr.io/google/cadvisor:0.55.1
+    container_name: safeboard-cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg
+    command: ["--docker_only=true", "--housekeeping_interval=5s"]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+  mysqld-exporter:                       # метрики MariaDB
+    <<: *common
+    image: prom/mysqld-exporter:v0.21.0
+    container_name: safeboard-mysqld-exporter
+    command:
+      - "--mysqld.address=safeboard-mariadb:3306"
+      - "--mysqld.username=exporter"
+    environment:
+      MYSQLD_EXPORTER_PASSWORD: ${EXPORTER_DB_PASSWORD:?Создайте .env}
+
+  blackbox-exporter:                     # доступность и latency веб-сервисов
+    <<: *common
+    image: prom/blackbox-exporter:v0.29.1
+    container_name: safeboard-blackbox
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  safeboard:
+    name: safeboard-net
+    external: true

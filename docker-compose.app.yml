@@ -1,0 +1,52 @@
+# Слой 1: приложение и БД. Запускается командой `dagger call deploy-app`.
+name: safeboard-app
+
+services:
+  mariadb:
+    build: ./mariadb            # образ с init-скриптом (создаёт пользователя для exporter)
+    container_name: safeboard-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?Создайте .env (см. .env.example)}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-kuma}
+      MARIADB_USER: ${MARIADB_USER:-kuma}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:?Создайте .env}
+      EXPORTER_DB_PASSWORD: ${EXPORTER_DB_PASSWORD:?Создайте .env}
+    volumes:
+      - mariadb_data:/var/lib/mysql      # данные переживают перезапуск
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [safeboard]                # порт наружу НЕ публикуем
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:2        # именно 2.x: поддержка MariaDB появилась только там
+    container_name: safeboard-kuma
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      UPTIME_KUMA_DB_TYPE: mariadb
+      UPTIME_KUMA_DB_HOSTNAME: mariadb
+      UPTIME_KUMA_DB_PORT: "3306"
+      UPTIME_KUMA_DB_NAME: ${MARIADB_DATABASE:-kuma}
+      UPTIME_KUMA_DB_USERNAME: ${MARIADB_USER:-kuma}
+      UPTIME_KUMA_DB_PASSWORD: ${MARIADB_PASSWORD:?Создайте .env}
+    volumes:
+      - kuma_data:/app/data
+    ports:
+      - "3001:3001"
+    networks: [safeboard]
+
+volumes:
+  mariadb_data:
+  kuma_data:
+
+networks:
+  safeboard:
+    name: safeboard-net
+    external: true     # сеть создаёт Dagger-функция, общая для обоих слоёв

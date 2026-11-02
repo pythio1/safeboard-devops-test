@@ -1,0 +1,25 @@
+groups:
+  # Recording rules: считаем «статусы» один раз в Prometheus, а Grafana и скрипты просто их читают.
+  # `or vector(0)` — если метрика пропала совсем (контейнер/экспортёр мёртв), считаем статус = 0, а не «нет данных».
+  - name: safeboard-status
+    interval: 5s
+    rules:
+      - record: safeboard:mariadb_up
+        expr: min(mysql_up) or vector(0)
+      - record: safeboard:kuma_up
+        expr: min(probe_success{instance="http://safeboard-kuma:3001"}) or vector(0)
+      - record: safeboard:overall_up
+        expr: safeboard:mariadb_up * safeboard:kuma_up
+
+  - name: safeboard-alerts
+    rules:
+      - alert: MariaDBDown
+        expr: safeboard:mariadb_up == 0
+        for: 15s
+        labels: { severity: critical }
+        annotations: { summary: "MariaDB недоступна" }
+      - alert: UptimeKumaDown
+        expr: safeboard:kuma_up == 0
+        for: 15s
+        labels: { severity: critical }
+        annotations: { summary: "Uptime Kuma недоступен" }

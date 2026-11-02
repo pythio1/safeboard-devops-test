@@ -1,0 +1,7 @@
+.env
+.dagger/sdk/
+.dagger/.venv/
+__pycache__/
+*.zip
+.DS_Store
+*.pyc

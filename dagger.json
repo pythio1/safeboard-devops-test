@@ -1,0 +1,7 @@
+{
+  "name": "safeboard",
+  "sdk": {
+    "source": "python"
+  },
+  "source": ".dagger"
+}
